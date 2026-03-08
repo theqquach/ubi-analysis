@@ -1,0 +1,278 @@
+---
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+# 1. Setup and Data Cleaning
+
+## 1.1 Load libraries
+
+```{r library loading}
+
+library(tidyverse) 
+library(dplyr)
+library(readxl)
+library(plm)
+library(lmtest)
+library(sandwich)
+library(stargazer)
+library(ggplot2)
+library(cowplot)
+library(fixest)
+```
+
+## 1.2 Data cleaning
+
+```{r read data}
+DATA_PATH = "../data/01-raw/MINC3.xlsx"
+mincome_data <- read_xlsx(DATA_PATH)
+
+DATA_PATH_2 = "../data/01-raw/MINC4.xlsx"
+payments_data <- read_xlsx(DATA_PATH_2, skip = 1, col_names = TRUE)
+
+```
+
+```{r clean mincome data}
+minorities <- c(16,19,7,8,20,21,24,26,32,33) 
+
+minc_clean <- mincome_data %>% 
+  mutate(
+    HHHRWRK = MHHOURS + FHHOURS,
+    RACIALHH = if_else( MHETHNIC %in% minorities | FHETHNIC %in% minorities, 1, 0),
+    AVGPROD = if_else(HHHRWRK != 0, TOTFAMINC74 / HHHRWRK, 0)
+  ) %>%
+  select(
+    FAMNUM, `SITE CODE`, FAMSIZE, TREAT, TOTFAMINC74, HHHRWRK, RACIALHH, MHETHNIC, FHETHNIC, AVGPROD, HMEVAL, VEHVAL, OTHVAL, LIQASSETS, DEBTS
+  ) %>%
+  rename(
+    SITE = `SITE CODE`
+  ) %>%
+  mutate(SITE = case_when(
+    SITE == 1 ~ "Winnipeg",
+    SITE == 2 ~ "Dauphin",
+    SITE == 0 ~ "Rural",
+    TRUE ~ NA_character_
+    )
+  ) %>%
+  mutate(
+    MHETHNIC = case_when(
+      MHETHNIC == 1 ~ "English",
+      MHETHNIC == 2 ~ "French",
+      MHETHNIC == 3 ~ "German",
+      MHETHNIC == 4 ~ "Irish",
+      MHETHNIC == 5 ~ "Italian",
+      MHETHNIC == 6 ~ "Jewish",
+      MHETHNIC == 7 ~ "Native Indian band",
+      MHETHNIC == 8 ~ "Native Indian non-band",
+      MHETHNIC == 9 ~ "Norwegian",
+      MHETHNIC == 10 ~ "Polish",
+      MHETHNIC == 11 ~ "Scottish",
+      MHETHNIC == 12 ~ "Ukrainian",
+      MHETHNIC == 13 ~ "Metis",
+      MHETHNIC == 14 ~ "Finnish",
+      MHETHNIC == 15 ~ "Canadian",
+      MHETHNIC == 16 ~ "Philippine",
+      MHETHNIC == 17 ~ "Belgian/Dutch",
+      MHETHNIC == 18 ~ "Icelandic",
+      MHETHNIC == 19 ~ "Chinese",
+      MHETHNIC == 20 ~ "Other",
+      MHETHNIC == 21 ~ "African",
+      MHETHNIC == 22 ~ "Yugoslavian/Czech/Hungarian",
+      MHETHNIC == 23 ~ "Swedish",
+      MHETHNIC == 24 ~ "West Indian",
+      MHETHNIC == 25 ~ "Mennonite",
+      MHETHNIC == 26 ~ "South American",
+      MHETHNIC == 27 ~ "Latvian/Lithuanian/Estonian",
+      MHETHNIC == 28 ~ "Spanish/Portuguese",
+      MHETHNIC == 29 ~ "Russian",
+      MHETHNIC == 30 ~ "Welsh",
+      MHETHNIC == 31 ~ "Greek",
+      MHETHNIC == 32 ~ "Black",
+      MHETHNIC == 33 ~ "Japanese",
+      MHETHNIC == 34 ~ "Danish",
+      MHETHNIC == 35 ~ "American",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+     mutate(
+    FHETHNIC = case_when(
+      FHETHNIC == 1 ~ "English",
+      FHETHNIC == 2 ~ "French",
+      FHETHNIC == 3 ~ "German",
+      FHETHNIC == 4 ~ "Irish",
+      FHETHNIC == 5 ~ "Italian",
+      FHETHNIC == 6 ~ "Jewish",
+      FHETHNIC == 7 ~ "Native Indian band",
+      FHETHNIC == 8 ~ "Native Indian non-band",
+      FHETHNIC == 9 ~ "Norwegian",
+      FHETHNIC == 10 ~ "Polish",
+      FHETHNIC == 11 ~ "Scottish",
+      FHETHNIC == 12 ~ "Ukrainian",
+      FHETHNIC == 13 ~ "Metis",
+      FHETHNIC == 14 ~ "Finnish",
+      FHETHNIC == 15 ~ "Canadian",
+      FHETHNIC == 16 ~ "Philippine",
+      FHETHNIC == 17 ~ "Belgian/Dutch",
+      FHETHNIC == 18 ~ "Icelandic",
+      FHETHNIC == 19 ~ "Chinese",
+      FHETHNIC == 20 ~ "Other",
+      FHETHNIC == 21 ~ "African",
+      FHETHNIC == 22 ~ "Yugoslavian/Czech/Hungarian",
+      FHETHNIC == 23 ~ "Swedish",
+      FHETHNIC == 24 ~ "West Indian",
+      FHETHNIC == 25 ~ "Mennonite",
+      FHETHNIC == 26 ~ "South American",
+      FHETHNIC == 27 ~ "Latvian/Lithuanian/Estonian",
+      FHETHNIC == 28 ~ "Spanish/Portuguese",
+      FHETHNIC == 29 ~ "Russian",
+      FHETHNIC == 30 ~ "Welsh",
+      FHETHNIC == 31 ~ "Greek",
+      FHETHNIC == 32 ~ "Black",
+      FHETHNIC == 33 ~ "Japanese",
+      FHETHNIC == 34 ~ "Danish",
+      FHETHNIC == 35 ~ "American",
+      TRUE ~ NA_character_
+    )
+  )
+
+
+minc_clean$SITE <- factor(minc_clean$SITE)
+
+colnames(minc_clean) <- toupper(colnames(minc_clean))
+
+minc_summary <- select(minc_clean, FAMSIZE, TOTFAMINC74, HHHRWRK, RACIALHH, AVGPROD) 
+summary(minc_summary)
+
+```
+
+## 1.3 Panel Data
+
+```{r panel data}
+
+for(i in 1:11){
+  payments_data[[paste0("HH_HOURS", i)]] <-
+    rowSums(
+      payments_data[, c(paste0("HOURS", i), paste0("FHOURS", i))],
+      na.rm = TRUE
+    )
+}
+
+for(i in 1:11){
+  payments_data[[paste0("HH_WAGE", i)]] <-
+    rowSums(
+      payments_data[, c(paste0("WAGE", i), paste0("FWAGE", i))],
+      na.rm = TRUE
+    )
+}
+
+payments_data <- payments_data %>%
+  mutate(
+    GBI_LVL_YR = case_when(
+      PLAN %in% c("1", "3", "6") ~ 3800,
+      PLAN %in% c("2", "4", "7") ~ 4800,
+      PLAN %in% c("5", "8") ~ 5800,
+      PLAN == "9" ~ 0,   # control group
+      TRUE ~ NA_real_
+    ) 
+    ) %>%
+  mutate(
+    TAX_RATE = case_when(
+      PLAN %in% c("1", "2") ~ 0.35,
+      PLAN %in% c("3", "4", "5") ~ 0.50,
+      PLAN %in% c("6", "7", "8") ~ 0.75,
+      PLAN == "9" ~ 0,
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  mutate(GBI_MON = GBI_LVL_YR / 12)
+
+payments_data <- payments_data %>%
+  select(
+    FAMNUM, PLAN, GBI_LVL_YR, GBI_MON, TAX_RATE, HH_HOURS1, HH_HOURS2, HH_HOURS3, HH_HOURS4, HH_HOURS5, HH_HOURS6, HH_HOURS7, HH_HOURS8, HH_HOURS9, HH_HOURS10, HH_HOURS11, HH_WAGE1, HH_WAGE2, HH_WAGE3, HH_WAGE4, HH_WAGE5, HH_WAGE6, HH_WAGE7, HH_WAGE8, HH_WAGE9, HH_WAGE10, HH_WAGE11
+  )
+
+merged_data <- minc_clean %>%
+  left_join(payments_data, by = "FAMNUM")
+
+for(i in 1:11){ 
+  merged_data[[paste0("PAYMENT", i)]] <- 
+    pmax(0, 
+         merged_data$GBI_MON - 
+           merged_data$TAX_RATE * 
+           merged_data[[paste0("HH_WAGE", i)]]) 
+}
+
+write.csv(minc_clean, "../data/02-clean/mincome_clean.csv", row.names = TRUE)
+write.csv(merged_data, "../data/02-clean/merged_panel_data.csv", row.names = TRUE)
+
+
+```
+
+```{r}
+panel_df <- merged_data %>%
+  pivot_longer(
+    cols = matches("HH_HOURS|HH_WAGE|PAYMENT"),
+    names_to = c(".value", "period"),
+    names_pattern = "(HH_HOURS|HH_WAGE|PAYMENT)(\\d+)"
+  ) %>%
+  mutate(period = as.numeric(period))
+```
+
+## 1.4 Exploratory Data Analysis
+
+```{r eda plots}
+
+p1 <- ggplot(minc_clean, aes(x = FAMSIZE)) +
+  geom_histogram(bins = 40, na.rm = TRUE) +
+  xlab("Family Size") +
+  ylab("Count") +
+  labs(title = "Distribution of Household Size")
+
+p2 <- ggplot(minc_clean, aes(SITE, HHHRWRK)) +
+  geom_boxplot(na.rm = TRUE) +
+  xlab("Site of Experiment") +
+  ylab("Household Work Hours") +
+  labs(title = "Household Work Hours by Site")
+
+p3 <- ggplot(minc_clean, aes(HHHRWRK, FAMSIZE)) +
+  geom_point(alpha = 0.4, na.rm = TRUE) +
+  geom_smooth(method = "lm", na.rm = TRUE) +
+  xlab("Household Hours Worked") +
+  ylab("Household Income") +
+  labs(title = "Income vs Household Work Hours")
+
+minc_clean %>%
+  group_by(SITE) %>%
+  summarise(
+    count = n(),
+    avg_income = mean(TOTFAMINC74, na.rm = TRUE),
+    avg_hours = mean(HHHRWRK, na.rm = TRUE),
+  )
+
+breakdown <- minc_clean %>%
+  count(SITE, RACIALHH)
+
+breakdown
+
+plot_grid(p1, p2, p3, label_size = 12)
+
+```
+
+# 2. Model fitting
+
+## 2.1 Fixed Effect Model Fitting
+
+```{r}
+
+panel_df <- panel_df %>%
+  mutate(post = ifelse(period >= 6, 1, 0))
+
+fe_model <- feols(
+  HH_HOURS ~ HH_WAGE + PAYMENT | FAMNUM + period,
+  data = panel_df,
+  cluster = ~FAMNUM
+)
+
+summary(fe_model)
+```
