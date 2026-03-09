@@ -1,7 +1,8 @@
 ---
-editor_options: 
-  markdown: 
+editor_options:
+  markdown:
     wrap: 72
+output: pdf_document
 ---
 
 # 1. Setup and Data Cleaning
@@ -10,16 +11,11 @@ editor_options:
 
 ```{r library loading}
 
-library(tidyverse) 
-library(dplyr)
+library(tidyverse)
 library(readxl)
-library(plm)
-library(lmtest)
-library(sandwich)
-library(stargazer)
-library(ggplot2)
 library(cowplot)
 library(fixest)
+library(modelsummary)
 ```
 
 ## 1.2 Data cleaning
@@ -43,7 +39,8 @@ minc_clean <- mincome_data %>%
     AVGPROD = if_else(HHHRWRK != 0, TOTFAMINC74 / HHHRWRK, 0)
   ) %>%
   select(
-    FAMNUM, `SITE CODE`, FAMSIZE, TREAT, TOTFAMINC74, HHHRWRK, RACIALHH, MHETHNIC, FHETHNIC, AVGPROD, HMEVAL, VEHVAL, OTHVAL, LIQASSETS, DEBTS
+    FAMNUM, `SITE CODE`, FAMSIZE, TREAT, TOTFAMINC74, HHHRWRK, RACIALHH, 
+    MHETHNIC, FHETHNIC, AVGPROD, HMEVAL, VEHVAL, OTHVAL, LIQASSETS, DEBTS
   ) %>%
   rename(
     SITE = `SITE CODE`
@@ -136,7 +133,6 @@ minc_clean <- mincome_data %>%
     )
   )
 
-
 minc_clean$SITE <- factor(minc_clean$SITE)
 
 colnames(minc_clean) <- toupper(colnames(minc_clean))
@@ -189,11 +185,19 @@ payments_data <- payments_data %>%
 
 payments_data <- payments_data %>%
   select(
-    FAMNUM, PLAN, GBI_LVL_YR, GBI_MON, TAX_RATE, HH_HOURS1, HH_HOURS2, HH_HOURS3, HH_HOURS4, HH_HOURS5, HH_HOURS6, HH_HOURS7, HH_HOURS8, HH_HOURS9, HH_HOURS10, HH_HOURS11, HH_WAGE1, HH_WAGE2, HH_WAGE3, HH_WAGE4, HH_WAGE5, HH_WAGE6, HH_WAGE7, HH_WAGE8, HH_WAGE9, HH_WAGE10, HH_WAGE11
+    FAMNUM, PLAN, GBI_LVL_YR, GBI_MON, TAX_RATE, HH_HOURS1, HH_HOURS2, 
+    HH_HOURS3, HH_HOURS4, HH_HOURS5, HH_HOURS6, HH_HOURS7, HH_HOURS8, 
+    HH_HOURS9, HH_HOURS10, HH_HOURS11, HH_WAGE1, HH_WAGE2, HH_WAGE3, 
+    HH_WAGE4, HH_WAGE5, HH_WAGE6, HH_WAGE7, HH_WAGE8, HH_WAGE9, 
+    HH_WAGE10, HH_WAGE11
   )
 
 merged_data <- minc_clean %>%
-  left_join(payments_data, by = "FAMNUM")
+  left_join(payments_data, by = "FAMNUM") %>%
+  mutate(
+    HH_WAGE0 = (mincome_data$MHTOTERN73 + mincome_data$FHTOTERN73)/12,
+    HH_HOURS0 = HHHRWRK/12
+  )
 
 for(i in 1:11){ 
   merged_data[[paste0("PAYMENT", i)]] <- 
@@ -202,10 +206,6 @@ for(i in 1:11){
            merged_data$TAX_RATE * 
            merged_data[[paste0("HH_WAGE", i)]]) 
 }
-
-write.csv(minc_clean, "../data/02-clean/mincome_clean.csv", row.names = TRUE)
-write.csv(merged_data, "../data/02-clean/merged_panel_data.csv", row.names = TRUE)
-
 
 ```
 
@@ -216,7 +216,11 @@ panel_df <- merged_data %>%
     names_to = c(".value", "period"),
     names_pattern = "(HH_HOURS|HH_WAGE|PAYMENT)(\\d+)"
   ) %>%
-  mutate(period = as.numeric(period))
+  mutate(period = as.numeric(period),
+          TREATED = ifelse(TREAT != 9, 1, 0)) %>%
+  select(
+    -MHETHNIC, -FHETHNIC, -AVGPROD, -PLAN
+  )
 ```
 
 ## 1.4 Exploratory Data Analysis
@@ -261,12 +265,12 @@ plot_grid(p1, p2, p3, label_size = 12)
 
 # 2. Model fitting
 
-## 2.1 Fixed Effect Model Fitting
+## 2.1 Fixed Effect Model
 
 ```{r}
 
 panel_df <- panel_df %>%
-  mutate(post = ifelse(period >= 6, 1, 0))
+  mutate(post = ifelse(period > 1, 1, 0))
 
 fe_model <- feols(
   HH_HOURS ~ HH_WAGE + PAYMENT | FAMNUM + period,
@@ -275,4 +279,55 @@ fe_model <- feols(
 )
 
 summary(fe_model)
+
+modelsummary(
+  fe_model,
+  statistic = "({std.error})"
+)
+```
+
+## 2.2 Difference-in-Differences Model
+
+```{r}
+
+panel_df$post <- ifelse(panel_df$period > 0, 1, 0)
+
+did_model <- feols(
+  HH_HOURS ~ TREATED * post | FAMNUM + period,
+  data = panel_df,
+  cluster = ~FAMNUM
+)
+
+modelsummary(did_model, statistic = "({std.error})")
+```
+
+## 2.3 Racialized vs. Nonracialized Households Model
+
+```{r}
+panel_df$treat_post <- panel_df$TREATED * panel_df$post
+panel_df$triple_diff <- panel_df$TREATED * panel_df$post * panel_df$RACIALHH
+
+ddd_model <- feols(
+  HH_HOURS ~ treat_post + triple_diff | FAMNUM + period,
+  data = panel_df,
+  cluster = ~FAMNUM
+)
+
+summary(ddd_model)
+
+modelsummary(
+  ddd_model,
+  statistic = "({std.error})"
+)
+
+```
+
+## Appendix.
+
+### Save Files
+
+```{r}
+write.csv(minc_clean, "../data/02-clean/mincome_clean.csv", row.names = TRUE)
+write.csv(merged_data, "../data/02-clean/merged_panel_data.csv", row.names = TRUE)
+write.csv(panel_df, "../data/02-clean/panel_df.csv", row.names = TRUE)
 ```
