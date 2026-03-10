@@ -272,9 +272,12 @@ plot_grid(p1, p2, p3, label_size = 12)
 panel_df <- panel_df %>%
   mutate(post = ifelse(period > 1, 1, 0))
 
+model_df <- panel_df %>%
+  select(-RACIALHH)
+
 fe_model <- feols(
   HH_HOURS ~ HH_WAGE + PAYMENT | FAMNUM + period,
-  data = panel_df,
+  data = model_df,
   cluster = ~FAMNUM
 )
 
@@ -290,14 +293,15 @@ modelsummary(
 
 ```{r}
 
-panel_df$post <- ifelse(panel_df$period > 0, 1, 0)
+model_df$post <- ifelse(model_df$period > 0, 1, 0)
 
 did_model <- feols(
   HH_HOURS ~ TREATED * post | FAMNUM + period,
-  data = panel_df,
+  data = model_df,
   cluster = ~FAMNUM
 )
 
+summary(did_model)
 modelsummary(did_model, statistic = "({std.error})")
 ```
 
@@ -316,13 +320,51 @@ ddd_model <- feols(
 summary(ddd_model)
 
 modelsummary(
-  ddd_model,
-  statistic = "({std.error})"
+  list(
+    "Fixed Effect Model" = fe_model,
+    "Diff-in Diff Model" = did_model,
+    "DDD Model" = ddd_model
+  ),
+  stars = TRUE
 )
 
 ```
 
-## Appendix.
+# 3. Robustness Checks
+
+## 3.1 Robust SE 
+
+```{r}
+
+fe_model_robust <- feols(
+  HH_HOURS ~ HH_WAGE + PAYMENT | FAMNUM + period,
+  data = panel_df,
+  vcov = "hetero"
+)
+
+did_model_robust <- feols(
+  HH_HOURS ~ TREATED:post | FAMNUM + period,
+  data = panel_df,
+  vcov = "hetero"
+)
+
+ddd_model_robust <- feols(
+  HH_HOURS ~ TREATED:post + TREATED:post:RACIALHH | FAMNUM + period,
+  data = panel_df,
+  vcov = "hetero"
+)
+
+modelsummary(
+  list(
+    "FE Robust" = fe_model_robust,
+    "DiD Robust" = did_model_robust,
+    "DDD Robust" = ddd_model_robust
+  ),
+  stars = TRUE
+)
+```
+
+# Appendix
 
 ### Save Files
 
@@ -330,4 +372,19 @@ modelsummary(
 write.csv(minc_clean, "../data/02-clean/mincome_clean.csv", row.names = TRUE)
 write.csv(merged_data, "../data/02-clean/merged_panel_data.csv", row.names = TRUE)
 write.csv(panel_df, "../data/02-clean/panel_df.csv", row.names = TRUE)
+```
+
+```{r}
+event_model <- feols(
+  HH_HOURS ~ i(period, TREATED, ref = 0) | FAMNUM + period,
+  data = panel_df,
+  cluster = ~FAMNUM
+)
+
+summary(event_model)
+
+iplot(event_model,
+      main = "Event Study: Treatment Effect on Household Hours",
+      xlab = "Time Relative to Treatment",
+      ylab = "Effect on HH_HOURS")
 ```
