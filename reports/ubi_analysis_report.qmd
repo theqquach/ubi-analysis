@@ -65,7 +65,7 @@ Basic Income Act*, reflects this growing interest [@mendelson2019ontario].
 Universal Basic Income (UBI) is a social program that provides an unconditional
 living wage without a work requirement or means testing. Critics argue that such
 a cash transfer reduces labour supply, as workers are less incentivized to work
-if their basic needs are covered — consistent with standard labour supply theory
+if their basic needs are covered. Which is consistent with standard labour supply theory
 in which higher non-labour income shifts the income-leisure trade-off toward
 leisure [@depaz2020empirical; @gunmin2017effects].
 
@@ -93,9 +93,7 @@ working hours across the experiment.
 This paper takes an econometric approach to the MINCOME data, using
 fixed-effects, difference-in-differences, and triple-differences models to
 estimate the effect of guaranteed income payments on household labour supply.
-Crucially, it extends prior work by examining whether the labour supply response
-differs between racialized and non-racialized households — a dimension
-understudied in the existing literature. Canada provides an instructive
+Crucially, it extends prior work in a dimension understudied in the existing literature. Specifically by examining whether the labour supply response differs between racialized and non-racialized households. Canada provides an instructive
 comparison: it spends proportionally less of its GDP on social protection than
 Finland [@oecd2023social; @european2025finland] but more than Brazil
 [@arnold2021brazil], situating the MINCOME results between a high-benefit Nordic
