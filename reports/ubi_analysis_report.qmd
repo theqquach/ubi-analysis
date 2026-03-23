@@ -9,7 +9,7 @@ format:
     toc-depth: 3
     toc-title: "Contents"
     number-sections: true
-    theme: cosmo
+    theme: pulse
     code-fold: true
     code-tools: true
     fig-cap-location: bottom
